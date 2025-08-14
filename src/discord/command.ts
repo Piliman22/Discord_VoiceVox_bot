@@ -107,6 +107,59 @@ export async function registerCommands(config: Config) {
                     .setMinValue(0.5)
                     .setMaxValue(2.0)
             )
+            .addNumberOption(option =>
+                option
+                    .setName("lowpass")
+                    .setDescription("ローパスフィルター周波数（50～4000 Hz）")
+                    .setRequired(false)
+                    .setMinValue(50)
+                    .setMaxValue(4000)
+            )
+            .addNumberOption(option =>
+                option
+                    .setName("highpass")
+                    .setDescription("ハイパスフィルター周波数（50～4000 Hz）")
+                    .setRequired(false)
+                    .setMinValue(50)
+                    .setMaxValue(4000)
+            ),
+        new SlashCommandBuilder()
+            .setName("my-voice")
+            .setDescription("自分専用の読み上げ声を設定します。")
+            .addIntegerOption(option =>
+                option
+                    .setName("speaker")
+                    .setDescription("キャラクターを選択してください")
+                    .setRequired(true)
+                    .addChoices(
+                        { name: "四国めたん（ノーマル）", value: 2 },
+                        { name: "四国めたん（あまあま）", value: 0 },
+                        { name: "四国めたん（ツンツン）", value: 6 },
+                        { name: "四国めたん（セクシー）", value: 4 },
+                        { name: "ずんだもん（ノーマル）", value: 3 },
+                        { name: "ずんだもん（あまあま）", value: 1 },
+                        { name: "ずんだもん（ツンツン）", value: 7 },
+                        { name: "ずんだもん（セクシー）", value: 5 },
+                        { name: "春日部つむぎ（ノーマル）", value: 8 },
+                        { name: "波音リツ（ノーマル）", value: 9 },
+                        { name: "玄野武宏（ノーマル）", value: 11 },
+                        { name: "白上虎太郎（ふつう）", value: 12 },
+                        { name: "青山龍星（ノーマル）", value: 13 },
+                        { name: "冥鳴ひまり（ノーマル）", value: 14 },
+                        { name: "九州そら（ノーマル）", value: 16 },
+                        { name: "九州そら（あまあま）", value: 15 },
+                        { name: "九州そら（ツンツン）", value: 18 },
+                        { name: "九州そら（セクシー）", value: 17 },
+                        { name: "もち子さん（ノーマル）", value: 20 },
+                        { name: "剣崎雌雄（ノーマル）", value: 21 }
+                    )
+            ),
+        new SlashCommandBuilder()
+            .setName("reset-my-voice")
+            .setDescription("自分の専用声設定をリセットします。"),
+        new SlashCommandBuilder()
+            .setName("voice-list")
+            .setDescription("現在のサーバーの個人声設定一覧を表示します。")
     ].map( cmd => cmd.toJSON() );
 
     const rest = new REST({ version: '10' }).setToken(config.token);

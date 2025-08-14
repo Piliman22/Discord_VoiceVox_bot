@@ -38,6 +38,7 @@ interface SpeechTask {
     text: string;
     connection: VoiceConnection;
     guildId: string;
+    userId?: string;  // ユーザーIDを追加
 }
 
 export class VoicevoxClient {
@@ -49,6 +50,8 @@ export class VoicevoxClient {
     private isProcessing: Map<string, boolean> = new Map();
     // ギルドごとの音声設定
     private voiceSettings: Map<string, VoiceSettings> = new Map();
+    // ユーザーごとの声設定（guildId:userId => speakerId）
+    private userSpeakers: Map<string, number> = new Map();
 
     constructor(config: VoicevoxConfig) {
         this.config = config;
@@ -56,9 +59,49 @@ export class VoicevoxClient {
     }
 
     /**
-     * テキストをキューに追加して読み上げ処理を開始
+     * ユーザー専用の声を設定
      */
-    async speakText(text: string, connection: VoiceConnection): Promise<void> {
+    setUserSpeaker(guildId: string, userId: string, speakerId: number): void {
+        const key = `${guildId}:${userId}`;
+        this.userSpeakers.set(key, speakerId);
+        console.log(`🎭 個人声設定: User ${userId} → Speaker ID ${speakerId} (Guild: ${guildId})`);
+    }
+
+    /**
+     * ユーザーの声設定を取得
+     */
+    getUserSpeaker(guildId: string, userId: string): number {
+        const key = `${guildId}:${userId}`;
+        return this.userSpeakers.get(key) || this.currentSpeakerId;
+    }
+
+    /**
+     * ユーザーの声設定を削除（デフォルトに戻す）
+     */
+    removeUserSpeaker(guildId: string, userId: string): void {
+        const key = `${guildId}:${userId}`;
+        this.userSpeakers.delete(key);
+        console.log(`🗑️ 個人声設定削除: User ${userId} (Guild: ${guildId})`);
+    }
+
+    /**
+     * ギルド内の全ユーザー声設定を取得
+     */
+    getGuildUserSpeakers(guildId: string): Map<string, number> {
+        const result = new Map<string, number>();
+        for (const [key, speakerId] of this.userSpeakers.entries()) {
+            if (key.startsWith(`${guildId}:`)) {
+                const userId = key.split(':')[1];
+                result.set(userId, speakerId);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * テキストをキューに追加して読み上げ処理を開始（ユーザーIDを追加）
+     */
+    async speakTextWithUser(text: string, connection: VoiceConnection, userId?: string): Promise<void> {
         const guildId = connection.joinConfig.guildId;
         
         // キューが存在しない場合は作成
@@ -68,7 +111,7 @@ export class VoicevoxClient {
         }
 
         // タスクをキューに追加
-        const task: SpeechTask = { text, connection, guildId };
+        const task: SpeechTask = { text, connection, guildId, userId };
         this.speechQueues.get(guildId)!.push(task);
 
         console.log(`📝 読み上げキューに追加: "${text}" (キュー数: ${this.speechQueues.get(guildId)!.length})`);
@@ -77,6 +120,13 @@ export class VoicevoxClient {
         if (!this.isProcessing.get(guildId)) {
             await this.processQueue(guildId);
         }
+    }
+
+    /**
+     * テキストをキューに追加して読み上げ処理を開始
+     */
+    async speakText(text: string, connection: VoiceConnection): Promise<void> {
+        return this.speakTextWithUser(text, connection);
     }
 
     /**
@@ -97,7 +147,7 @@ export class VoicevoxClient {
             try {
                 console.log(`🔊 読み上げ開始: "${task.text}" (残りキュー: ${queue.length})`);
                 
-                const audioBuffer = await this.synthesizeVoice(task.text, guildId);
+                const audioBuffer = await this.synthesizeVoice(task.text, guildId, task.userId);
                 await this.playAudio(audioBuffer, task.connection);
                 
                 console.log(`✅ 読み上げ完了: "${task.text}"`);
@@ -193,7 +243,13 @@ export class VoicevoxClient {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    private async synthesizeVoice(text: string, guildId?: string): Promise<Buffer> {
+    private async synthesizeVoice(text: string, guildId?: string, userId?: string): Promise<Buffer> {
+        // 使用する話者IDを決定
+        let speakerId = this.currentSpeakerId;
+        if (guildId && userId) {
+            speakerId = this.getUserSpeaker(guildId, userId);
+        }
+
         // 1. 音声クエリを生成
         const queryResponse = await axios.post(
             `${this.config.url}/audio_query`,
@@ -201,7 +257,7 @@ export class VoicevoxClient {
             {
                 params: {
                     text: text,
-                    speaker: this.currentSpeakerId
+                    speaker: speakerId
                 },
                 headers: {
                     'Content-Type': 'application/json'
@@ -231,7 +287,7 @@ export class VoicevoxClient {
             audioQuery,
             {
                 params: {
-                    speaker: this.currentSpeakerId
+                    speaker: speakerId
                 },
                 headers: {
                     'Content-Type': 'application/json'

@@ -94,7 +94,7 @@ export async function launch(config: Config) {
         }
     });
 
-    // メッセージ読み上げ処理
+    // メッセージ読み上げ処理（ユーザーID対応）
     client.on('messageCreate', async (message: Message) => {
         // Botのメッセージは無視
         if (message.author.bot) return;
@@ -116,14 +116,20 @@ export async function launch(config: Config) {
         // 空メッセージや長すぎるメッセージは読み上げない
         if (!message.content.trim() || message.content.length > 200) return;
 
+        // セミコロン（;）から始まるメッセージは読み上げをスキップ
+        if (message.content.trim().startsWith(';')) {
+            console.log(`🔇 読み上げスキップ: "${message.content}" (セミコロンで開始)`);
+            return;
+        }
+
         try {
             // メッセージ内容を処理（URL変換など）
             const processedText = processMessageText(message.content);
             
-            console.log(`📥 メッセージ受信: "${message.content}" → "${processedText}"`);
+            console.log(`📥 メッセージ受信: "${message.content}" → "${processedText}" (User: ${message.author.username})`);
             
-            // キューシステムを使って読み上げ（非同期でキューに追加）
-            voicevox.speakText(processedText, connection).catch(error => {
+            // キューシステムを使って読み上げ（ユーザーIDを指定）
+            voicevox.speakTextWithUser(processedText, connection, message.author.id).catch(error => {
                 console.error('読み上げキュー追加エラー:', error);
             });
         } catch (error) {
@@ -206,6 +212,18 @@ export async function launch(config: Config) {
 
         if (interaction.commandName === "toggle-join-leave") {
             await handleToggleJoinLeave(interaction);
+        }
+
+        if (interaction.commandName === "my-voice") {
+            await handleMyVoice(interaction);
+        }
+
+        if (interaction.commandName === "reset-my-voice") {
+            await handleResetMyVoice(interaction);
+        }
+
+        if (interaction.commandName === "voice-list") {
+            await handleVoiceList(interaction);
         }
     });
 
@@ -509,6 +527,98 @@ export async function launch(config: Config) {
             content: "入退室通知は常に有効です。無効化機能は今後のアップデートで追加予定です。", 
             ephemeral: true 
         });
+    }
+
+    async function handleMyVoice(interaction: ChatInputCommandInteraction) {
+        const speakerId = interaction.options.getInteger("speaker", true);
+        
+        try {
+            // 個人用の声を設定
+            voicevox.setUserSpeaker(interaction.guildId!, interaction.user.id, speakerId);
+            
+            // キャラクター名を取得
+            const speakerName = await voicevox.getSpeakerName(speakerId);
+            
+            await interaction.reply(
+                `🎭 **${interaction.user.displayName || interaction.user.username}** さん専用の読み上げ声を **${speakerName}** に設定しました！\n` +
+                `これで、あなたのメッセージは ${speakerName} の声で読み上げられます。`
+            );
+
+            // テスト読み上げ（VCに参加している場合）
+            const connection = getVoiceConnection(interaction.guildId!);
+            if (connection) {
+                try {
+                    voicevox.speakTextWithUser("個人専用の声設定が完了しました", connection, interaction.user.id);
+                } catch (error) {
+                    console.error('テスト読み上げエラー:', error);
+                }
+            }
+        } catch (error) {
+            console.error('個人声設定エラー:', error);
+            await interaction.reply({ 
+                content: "個人専用声の設定に失敗しました。", 
+                ephemeral: true 
+            });
+        }
+    }
+
+    async function handleResetMyVoice(interaction: ChatInputCommandInteraction) {
+        try {
+            voicevox.removeUserSpeaker(interaction.guildId!, interaction.user.id);
+            
+            await interaction.reply(
+                `🔄 **${interaction.user.displayName || interaction.user.username}** さんの専用声設定をリセットしました！\n` +
+                `これからはサーバーのデフォルト設定で読み上げられます。`
+            );
+        } catch (error) {
+            console.error('個人声リセットエラー:', error);
+            await interaction.reply({ 
+                content: "個人専用声のリセットに失敗しました。", 
+                ephemeral: true 
+            });
+        }
+    }
+
+    async function handleVoiceList(interaction: ChatInputCommandInteraction) {
+        try {
+            const userSpeakers = voicevox.getGuildUserSpeakers(interaction.guildId!);
+            
+            if (userSpeakers.size === 0) {
+                await interaction.reply({ 
+                    content: "現在、個人専用声を設定しているユーザーはいません。", 
+                    ephemeral: true 
+                });
+                return;
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle("🎭 個人専用声設定一覧")
+                .setColor(0x0099FF)
+                .setDescription("このサーバーで個人専用声を設定しているユーザー：");
+
+            let description = "";
+            for (const [userId, speakerId] of userSpeakers) {
+                try {
+                    const user = await client.users.fetch(userId);
+                    const speakerName = await voicevox.getSpeakerName(speakerId);
+                    const displayName = user.displayName || user.username;
+                    description += `**${displayName}** → ${speakerName}\n`;
+                } catch (error) {
+                    description += `**Unknown User** → Speaker ID ${speakerId}\n`;
+                }
+            }
+
+            embed.setDescription(description);
+            embed.setFooter({ text: "個人専用声設定: /my-voice | リセット: /reset-my-voice" });
+
+            await interaction.reply({ embeds: [embed], ephemeral: true });
+        } catch (error) {
+            console.error('個人声一覧取得エラー:', error);
+            await interaction.reply({ 
+                content: "個人専用声一覧の取得に失敗しました。", 
+                ephemeral: true 
+            });
+        }
     }
 
     await registerCommands(config);
