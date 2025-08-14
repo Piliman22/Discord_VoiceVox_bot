@@ -67,6 +67,46 @@ export async function registerCommands(config: Config) {
         new SlashCommandBuilder()
             .setName("skip")
             .setDescription("現在の読み上げキューをクリアします。")
+            .setDefaultMemberPermissions(0)
+            .setDMPermission(false),
+        new SlashCommandBuilder()
+            .setName("speed")
+            .setDescription("読み上げ速度を調整します。")
+            .addNumberOption(option =>
+                option
+                    .setName("value")
+                    .setDescription("読み上げ速度（0.5～2.0、デフォルト：1.0）")
+                    .setRequired(true)
+                    .setMinValue(0.5)
+                    .setMaxValue(2.0)
+            ),
+        new SlashCommandBuilder()
+            .setName("voice-settings")
+            .setDescription("音声設定を詳細調整します。")
+            .addNumberOption(option =>
+                option
+                    .setName("speed")
+                    .setDescription("読み上げ速度（0.5～2.0）")
+                    .setRequired(false)
+                    .setMinValue(0.5)
+                    .setMaxValue(2.0)
+            )
+            .addNumberOption(option =>
+                option
+                    .setName("pitch")
+                    .setDescription("音の高さ（-0.15～0.15）")
+                    .setRequired(false)
+                    .setMinValue(-0.15)
+                    .setMaxValue(0.15)
+            )
+            .addNumberOption(option =>
+                option
+                    .setName("volume")
+                    .setDescription("音量（0.5～2.0）")
+                    .setRequired(false)
+                    .setMinValue(0.5)
+                    .setMaxValue(2.0)
+            )
     ].map( cmd => cmd.toJSON() );
 
     const rest = new REST({ version: '10' }).setToken(config.token);

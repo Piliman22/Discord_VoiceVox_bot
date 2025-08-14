@@ -13,6 +13,16 @@ export interface VoicevoxConfig {
     speakerId: number;
 }
 
+// 音声設定の型定義
+export interface VoiceSettings {
+    speedScale: number;   // 読み上げ速度
+    pitchScale: number;   // 音の高さ
+    intonationScale: number; // イントネーション
+    volumeScale: number;  // 音量
+    prePhonemeLength: number; // 音声の前の無音時間
+    postPhonemeLength: number; // 音声の後の無音時間
+}
+
 // キャラクター情報の型定義
 export interface CharacterInfo {
     id: number;
@@ -37,6 +47,8 @@ export class VoicevoxClient {
     private speechQueues: Map<string, SpeechTask[]> = new Map();
     // ギルドごとの読み上げ中フラグ
     private isProcessing: Map<string, boolean> = new Map();
+    // ギルドごとの音声設定
+    private voiceSettings: Map<string, VoiceSettings> = new Map();
 
     constructor(config: VoicevoxConfig) {
         this.config = config;
@@ -85,7 +97,7 @@ export class VoicevoxClient {
             try {
                 console.log(`🔊 読み上げ開始: "${task.text}" (残りキュー: ${queue.length})`);
                 
-                const audioBuffer = await this.synthesizeVoice(task.text);
+                const audioBuffer = await this.synthesizeVoice(task.text, guildId);
                 await this.playAudio(audioBuffer, task.connection);
                 
                 console.log(`✅ 読み上げ完了: "${task.text}"`);
@@ -124,13 +136,64 @@ export class VoicevoxClient {
     }
 
     /**
+     * ギルドの音声設定を取得（デフォルト値を返す）
+     */
+    getVoiceSettings(guildId: string): VoiceSettings {
+        if (!this.voiceSettings.has(guildId)) {
+            const defaultSettings: VoiceSettings = {
+                speedScale: 1.0,
+                pitchScale: 0.0,
+                intonationScale: 1.0,
+                volumeScale: 1.0,
+                prePhonemeLength: 0.1,
+                postPhonemeLength: 0.1
+            };
+            this.voiceSettings.set(guildId, defaultSettings);
+        }
+        return this.voiceSettings.get(guildId)!;
+    }
+
+    /**
+     * 読み上げ速度を設定
+     */
+    setSpeed(guildId: string, speed: number): void {
+        const settings = this.getVoiceSettings(guildId);
+        settings.speedScale = Math.max(0.5, Math.min(2.0, speed));
+        this.voiceSettings.set(guildId, settings);
+        console.log(`🏃 読み上げ速度変更: ${settings.speedScale} (Guild: ${guildId})`);
+    }
+
+    /**
+     * 音声設定を更新
+     */
+    updateVoiceSettings(guildId: string, updates: Partial<VoiceSettings>): void {
+        const settings = this.getVoiceSettings(guildId);
+        
+        if (updates.speedScale !== undefined) {
+            settings.speedScale = Math.max(0.5, Math.min(2.0, updates.speedScale));
+        }
+        if (updates.pitchScale !== undefined) {
+            settings.pitchScale = Math.max(-0.15, Math.min(0.15, updates.pitchScale));
+        }
+        if (updates.volumeScale !== undefined) {
+            settings.volumeScale = Math.max(0.5, Math.min(2.0, updates.volumeScale));
+        }
+        if (updates.intonationScale !== undefined) {
+            settings.intonationScale = Math.max(0.0, Math.min(2.0, updates.intonationScale));
+        }
+
+        this.voiceSettings.set(guildId, settings);
+        console.log(`🎛️ 音声設定更新 (Guild: ${guildId}):`, settings);
+    }
+
+    /**
      * スリープ関数
      */
     private sleep(ms: number): Promise<void> {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    private async synthesizeVoice(text: string): Promise<Buffer> {
+    private async synthesizeVoice(text: string, guildId?: string): Promise<Buffer> {
         // 1. 音声クエリを生成
         const queryResponse = await axios.post(
             `${this.config.url}/audio_query`,
@@ -146,9 +209,23 @@ export class VoicevoxClient {
             }
         );
 
-        const audioQuery = queryResponse.data;
+        let audioQuery = queryResponse.data;
 
-        // 2. 音声を生成
+        // 2. ギルドの音声設定を適用
+        if (guildId) {
+            const settings = this.getVoiceSettings(guildId);
+            audioQuery = {
+                ...audioQuery,
+                speedScale: settings.speedScale,
+                pitchScale: settings.pitchScale,
+                intonationScale: settings.intonationScale,
+                volumeScale: settings.volumeScale,
+                prePhonemeLength: settings.prePhonemeLength,
+                postPhonemeLength: settings.postPhonemeLength
+            };
+        }
+
+        // 3. 音声を生成
         const synthesisResponse = await axios.post(
             `${this.config.url}/synthesis`,
             audioQuery,

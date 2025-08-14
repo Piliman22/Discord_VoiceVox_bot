@@ -196,6 +196,14 @@ export async function launch(config: Config) {
             await handleSkip(interaction);
         }
 
+        if (interaction.commandName === "speed") {
+            await handleSpeed(interaction);
+        }
+
+        if (interaction.commandName === "voice-settings") {
+            await handleVoiceSettings(interaction);
+        }
+
         if (interaction.commandName === "toggle-join-leave") {
             await handleToggleJoinLeave(interaction);
         }
@@ -261,6 +269,7 @@ export async function launch(config: Config) {
         const currentSpeakerId = voicevox.getCurrentSpeakerId();
         const speakerName = await voicevox.getSpeakerName(currentSpeakerId);
         const queueStatus = voicevox.getQueueStatus(interaction.guildId!);
+        const voiceSettings = voicevox.getVoiceSettings(interaction.guildId!);
 
         let statusMessage = "📊 **Bot状態**\n";
         
@@ -283,7 +292,10 @@ export async function launch(config: Config) {
             statusMessage += " *(処理中)*";
         }
 
-        statusMessage += `\n🔔 入退室通知: **有効**`;
+        statusMessage += `\n🔔 入退室通知: **有効**\n`;
+        statusMessage += `🏃 読み上げ速度: **${voiceSettings.speedScale}**\n`;
+        statusMessage += `🎵 音の高さ: **${voiceSettings.pitchScale >= 0 ? '+' : ''}${voiceSettings.pitchScale}**\n`;
+        statusMessage += `🔊 音量: **${voiceSettings.volumeScale}**`;
 
         await interaction.reply({ content: statusMessage, ephemeral: true });
     }
@@ -416,6 +428,80 @@ export async function launch(config: Config) {
         voicevox.clearQueue(interaction.guildId!);
         
         await interaction.reply("⏭️ 読み上げキューをクリアしました！");
+    }
+
+    async function handleSpeed(interaction: ChatInputCommandInteraction) {
+        const speed = interaction.options.getNumber("value", true);
+        
+        try {
+            voicevox.setSpeed(interaction.guildId!, speed);
+            
+            await interaction.reply(
+                `🏃 読み上げ速度を **${speed}** に設定しました！\n`
+            );
+
+            // テスト読み上げ（VCに参加している場合）
+            const connection = getVoiceConnection(interaction.guildId!);
+            if (connection) {
+                try {
+                    voicevox.speakText("読み上げ速度を変更しました", connection);
+                } catch (error) {
+                    console.error('テスト読み上げエラー:', error);
+                }
+            }
+        } catch (error) {
+            console.error('速度変更エラー:', error);
+            await interaction.reply({ 
+                content: "読み上げ速度の変更に失敗しました。", 
+                ephemeral: true 
+            });
+        }
+    }
+
+    async function handleVoiceSettings(interaction: ChatInputCommandInteraction) {
+        const speed = interaction.options.getNumber("speed");
+        const pitch = interaction.options.getNumber("pitch");
+        const volume = interaction.options.getNumber("volume");
+
+        if (!speed && !pitch && !volume) {
+            await interaction.reply({ 
+                content: "少なくとも一つのパラメータを指定してください。", 
+                ephemeral: true 
+            });
+            return;
+        }
+
+        try {
+            const updates: any = {};
+            if (speed !== null) updates.speedScale = speed;
+            if (pitch !== null) updates.pitchScale = pitch;
+            if (volume !== null) updates.volumeScale = volume;
+
+            voicevox.updateVoiceSettings(interaction.guildId!, updates);
+
+            let message = "🎛️ **音声設定を更新しました！**\n";
+            if (speed !== null) message += `🏃 速度: **${speed}**\n`;
+            if (pitch !== null) message += `🎵 音の高さ: **${pitch >= 0 ? '+' : ''}${pitch}**\n`;
+            if (volume !== null) message += `🔊 音量: **${volume}**`;
+
+            await interaction.reply(message);
+
+            // テスト読み上げ（VCに参加している場合）
+            const connection = getVoiceConnection(interaction.guildId!);
+            if (connection) {
+                try {
+                    voicevox.speakText("音声設定を変更しました", connection);
+                } catch (error) {
+                    console.error('テスト読み上げエラー:', error);
+                }
+            }
+        } catch (error) {
+            console.error('音声設定変更エラー:', error);
+            await interaction.reply({ 
+                content: "音声設定の変更に失敗しました。", 
+                ephemeral: true 
+            });
+        }
     }
 
     async function handleToggleJoinLeave(interaction: ChatInputCommandInteraction) {
