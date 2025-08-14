@@ -1,0 +1,6 @@
+{
+  "token": "YOUR_DISCORD_BOT_TOKEN",
+  "clientId": "YOUR_DISCORD_APPLICATION_ID",
+  "voicevoxUrl": "http://localhost:50021",
+  "speakerId": 1
+}

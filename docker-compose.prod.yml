@@ -1,0 +1,41 @@
+services:
+  # VOICEVOXエンジン
+  voicevox-engine:
+    image: voicevox/voicevox_engine:cpu-ubuntu20.04-latest
+    container_name: voicevox-engine
+    ports:
+      - "50021:50021"
+    environment:
+      - VOICEVOX_CPU_NUM_THREADS=4
+    restart: unless-stopped
+    networks:
+      - bot-network
+
+  # Discord Bot
+  bot:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: bot
+    environment:
+      - NODE_ENV=production
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
+      - VOICEVOX_URL=http://voicevox-engine:50021
+      - VOICEVOX_SPEAKER_ID=${VOICEVOX_SPEAKER_ID:-1}
+    volumes:
+      - ./config.json:/app/config.json:ro
+    depends_on:
+      - voicevox-engine
+    restart: unless-stopped
+    networks:
+      - bot-network
+    command: sh -c "sleep 30 && node dist/index.js"
+
+networks:
+  bot-network:
+    driver: bridge
+
+volumes:
+  bot-data:
+    driver: local
