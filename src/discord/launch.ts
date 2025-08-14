@@ -3,7 +3,8 @@ import {
     GatewayIntentBits, 
     ChatInputCommandInteraction,
     Message,
-    EmbedBuilder
+    EmbedBuilder,
+    VoiceState
 } from 'discord.js';
 import { registerCommands } from './command';
 import { Config } from '../config';
@@ -41,6 +42,58 @@ export async function launch(config: Config) {
         }
     });
 
+    // ボイスチャンネルの入退室を監視
+    client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
+        // Botの状態変化は無視
+        if (newState.member?.user.bot) return;
+
+        // ギルドIDが存在しない場合は処理しない
+        if (!newState.guild?.id) return;
+
+        // VCに参加しているかチェック
+        const connection = getVoiceConnection(newState.guild.id);
+        if (!connection) return;
+
+        // 読み上げ対象チャンネルが設定されているかチェック
+        const targetChannelId = readingChannels.get(newState.guild.id);
+        if (!targetChannelId) return;
+
+        const user = newState.member?.user;
+        if (!user) return;
+
+        // ユーザー名を取得（表示名を優先、なければユーザー名）
+        const userName = newState.member?.displayName || user.displayName || user.username;
+
+        try {
+            // 入室の場合
+            if (!oldState.channel && newState.channel) {
+                const message = `${userName}さんが入室しました`;
+                console.log(`🔵 入室通知: ${message}`);
+                voicevox.speakText(message, connection).catch(error => {
+                    console.error('入室通知読み上げエラー:', error);
+                });
+            }
+            // 退室の場合
+            else if (oldState.channel && !newState.channel) {
+                const message = `${userName}さんが退室しました`;
+                console.log(`🔴 退室通知: ${message}`);
+                voicevox.speakText(message, connection).catch(error => {
+                    console.error('退室通知読み上げエラー:', error);
+                });
+            }
+            // チャンネル移動の場合（オプション）
+            else if (oldState.channel && newState.channel && oldState.channel.id !== newState.channel.id) {
+                const message = `${userName}さんがチャンネルを移動しました`;
+                console.log(`🔄 移動通知: ${message}`);
+                voicevox.speakText(message, connection).catch(error => {
+                    console.error('移動通知読み上げエラー:', error);
+                });
+            }
+        } catch (error) {
+            console.error('入退室通知処理エラー:', error);
+        }
+    });
+
     // メッセージ読み上げ処理
     client.on('messageCreate', async (message: Message) => {
         // Botのメッセージは無視
@@ -64,15 +117,49 @@ export async function launch(config: Config) {
         if (!message.content.trim() || message.content.length > 200) return;
 
         try {
-            console.log(`📥 メッセージ受信: "${message.content}" (チャンネル: ${message.channel})`);
+            // メッセージ内容を処理（URL変換など）
+            const processedText = processMessageText(message.content);
+            
+            console.log(`📥 メッセージ受信: "${message.content}" → "${processedText}"`);
+            
             // キューシステムを使って読み上げ（非同期でキューに追加）
-            voicevox.speakText(message.content, connection).catch(error => {
+            voicevox.speakText(processedText, connection).catch(error => {
                 console.error('読み上げキュー追加エラー:', error);
             });
         } catch (error) {
             console.error('メッセージ読み上げエラー:', error);
         }
     });
+
+    /**
+     * メッセージテキストを読み上げ用に処理する
+     */
+    function processMessageText(text: string): string {
+        let processedText = text;
+
+        // URLを「URL」に置換（複数のURLパターンに対応）
+        const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[^\s]+\.[a-zA-Z]{2,}\/[^\s]*)/g;
+        processedText = processedText.replace(urlRegex, 'URL');
+
+        // 連続する「URL」を一つにまとめる
+        processedText = processedText.replace(/URL\s*URL/g, 'URL');
+
+        // Discordのメンション記法を読みやすい形に変換
+        processedText = processedText.replace(/<@!?(\d+)>/g, 'メンション');
+        processedText = processedText.replace(/<#(\d+)>/g, 'チャンネル');
+        processedText = processedText.replace(/<@&(\d+)>/g, 'ロール');
+
+        // カスタム絵文字を「絵文字」に変換
+        processedText = processedText.replace(/<a?:\w+:\d+>/g, '絵文字');
+
+        // 改行を句読点に変換
+        processedText = processedText.replace(/\n+/g, '。');
+
+        // 余分な空白を削除
+        processedText = processedText.replace(/\s+/g, ' ').trim();
+
+        return processedText;
+    }
 
     client.on("interactionCreate", async interaction => {
         if (!interaction.isChatInputCommand()) return;
@@ -108,6 +195,10 @@ export async function launch(config: Config) {
         if (interaction.commandName === "skip") {
             await handleSkip(interaction);
         }
+
+        if (interaction.commandName === "toggle-join-leave") {
+            await handleToggleJoinLeave(interaction);
+        }
     });
 
     async function handleJoin(interaction: ChatInputCommandInteraction) {
@@ -140,7 +231,8 @@ export async function launch(config: Config) {
 
         await interaction.reply(
             `**${channel.name}** に参加しました!\n` +
-            `📢 このチャンネル（<#${interaction.channelId}>）のメッセージを読み上げます。`
+            `📢 このチャンネル（<#${interaction.channelId}>）のメッセージを読み上げます。\n` +
+            `🔔 入退室通知も有効になりました。`
         );
     }
 
@@ -190,6 +282,8 @@ export async function launch(config: Config) {
         if (queueStatus.isProcessing) {
             statusMessage += " *(処理中)*";
         }
+
+        statusMessage += `\n🔔 入退室通知: **有効**`;
 
         await interaction.reply({ content: statusMessage, ephemeral: true });
     }
@@ -322,6 +416,13 @@ export async function launch(config: Config) {
         voicevox.clearQueue(interaction.guildId!);
         
         await interaction.reply("⏭️ 読み上げキューをクリアしました！");
+    }
+
+    async function handleToggleJoinLeave(interaction: ChatInputCommandInteraction) {
+        await interaction.reply({ 
+            content: "入退室通知は常に有効です。無効化機能は今後のアップデートで追加予定です。", 
+            ephemeral: true 
+        });
     }
 
     await registerCommands(config);
