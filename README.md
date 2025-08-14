@@ -128,7 +128,7 @@ docker-compose -f docker-compose.prod.yml up -d
 ## 📁 プロジェクト構造
 
 ```
-deltachan/
+Discord_VoiceVox_bot/
 ├── src/
 │   ├── config.ts           # 設定ファイル読み込み
 │   ├── index.ts            # エントリーポイント
