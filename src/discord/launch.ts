@@ -122,6 +122,12 @@ export async function launch(config: Config) {
             return;
         }
 
+        // スポイラーは読み上げない
+        if (message.content.includes('||')) {
+            console.log(`🔇 読み上げスキップ: "${message.content}" (スポイラー含む)`);
+            return;
+        }
+
         try {
             // メッセージ内容を処理（URL変換など）
             const processedText = processMessageText(message.content);
