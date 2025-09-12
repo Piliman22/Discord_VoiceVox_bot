@@ -54,6 +54,10 @@ export async function launch(config: Config) {
         const connection = getVoiceConnection(newState.guild.id);
         if (!connection) return;
 
+        // Botが現在入っているVCのIDを取得
+        const botVoiceChannelId = connection.joinConfig.channelId;
+        if (!botVoiceChannelId) return;
+
         // 読み上げ対象チャンネルが設定されているかチェック
         const targetChannelId = readingChannels.get(newState.guild.id);
         if (!targetChannelId) return;
@@ -65,30 +69,72 @@ export async function launch(config: Config) {
         const userName = newState.member?.displayName || user.displayName || user.username;
 
         try {
-            // 入室の場合
-            if (!oldState.channel && newState.channel) {
+            // 入室の場合（BotがいるVCに入った場合のみ）
+            if (
+                !oldState.channel &&
+                newState.channel &&
+                newState.channel.id === botVoiceChannelId
+            ) {
                 const message = `${userName}さんが入室しました`;
                 console.log(`🔵 入室通知: ${message}`);
                 voicevox.speakText(message, connection).catch(error => {
                     console.error('入室通知読み上げエラー:', error);
                 });
             }
-            // 退室の場合
-            else if (oldState.channel && !newState.channel) {
+            // 退室の場合（BotがいるVCから出た場合のみ）
+            else if (
+                oldState.channel &&
+                !newState.channel &&
+                oldState.channel.id === botVoiceChannelId
+            ) {
                 const message = `${userName}さんが退室しました`;
                 console.log(`🔴 退室通知: ${message}`);
                 voicevox.speakText(message, connection).catch(error => {
                     console.error('退室通知読み上げエラー:', error);
                 });
             }
-            // チャンネル移動の場合（オプション）
-            else if (oldState.channel && newState.channel && oldState.channel.id !== newState.channel.id) {
-                const message = `${userName}さんがチャンネルを移動しました`;
-                console.log(`🔄 移動通知: ${message}`);
-                voicevox.speakText(message, connection).catch(error => {
-                    console.error('移動通知読み上げエラー:', error);
-                });
+            // チャンネル移動の場合（BotがいるVCへの入室 or 退室のみ通知）
+            else if (
+                oldState.channel &&
+                newState.channel &&
+                oldState.channel.id !== newState.channel.id
+            ) {
+                // BotがいるVCに入った場合
+                if (newState.channel.id === botVoiceChannelId) {
+                    const message = `${userName}さんが入室しました`;
+                    console.log(`🔵 入室通知: ${message}`);
+                    voicevox.speakText(message, connection).catch(error => {
+                        console.error('入室通知読み上げエラー:', error);
+                    });
+                }
+                // BotがいるVCから出た場合
+                else if (oldState.channel.id === botVoiceChannelId) {
+                    const message = `${userName}さんが退室しました`;
+                    console.log(`🔴 退室通知: ${message}`);
+                    voicevox.speakText(message, connection).catch(error => {
+                        console.error('退室通知読み上げエラー:', error);
+                    });
+                }
             }
+
+            // --- ここから自動退出処理を追加 ---
+            // BotがいるVCの状態を取得
+            const guild = newState.guild;
+            const botChannel = guild.channels.cache.get(botVoiceChannelId);
+            if (botChannel && botChannel.isVoiceBased()) {
+                // ボイスチャンネルのメンバー一覧を取得
+                const members = (botChannel as any).members as Map<string, any>;
+                // Bot以外のユーザーがいない場合は退出
+                const nonBotMembers = Array.from(members.values()).filter((m: any) => !m.user.bot);
+                if (nonBotMembers.length === 0) {
+                    // 退出処理
+                    connection.destroy();
+                    voicevox.clearQueue(guild.id);
+                    readingChannels.delete(guild.id);
+                    console.log(`👋 ボイスチャンネルにBotのみとなったため自動退出 (Guild: ${guild.name})`);
+                }
+            }
+            // --- ここまで自動退出処理 ---
         } catch (error) {
             console.error('入退室通知処理エラー:', error);
         }
